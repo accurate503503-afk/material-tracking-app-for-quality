@@ -1,0 +1,92 @@
+*{box-sizing:border-box}
+body{margin:0;background:#f2faf5;color:#17221b;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
+.topbar{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:14px;padding:10px 18px;background:#fff;border-bottom:3px solid #009b4d;box-shadow:0 2px 10px #0001;flex-wrap:wrap}
+.logo{width:120px;height:44px;object-fit:contain}
+.brand{font-size:20px;font-weight:900;color:#009b4d}
+.subtitle{font-size:12px;font-weight:700;color:#34443a}
+.user-box{margin-left:auto;text-align:right;font-size:12px}
+.user-name{font-weight:800}
+.user-role{display:inline-block;background:#eef8f2;color:#087c3d;padding:3px 8px;border-radius:999px;font-weight:800;font-size:11px;margin:3px 0}
+.container{max-width:900px;margin:18px auto;padding:0 14px}
+.panel{background:#fff;border:1px solid #d8e7dd;border-radius:18px;padding:18px;margin-bottom:16px;box-shadow:0 4px 16px #16452b0b}
+.section-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
+.section-head h2{margin:0;font-size:19px}
+.section-head h3{margin:0;font-size:15px;color:#33473b}
+.badge{background:#eef8f2;color:#087c3d;padding:7px 10px;border-radius:999px;font-weight:800;font-size:12px}
+.actions{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0}
+.primary,.secondary,.danger{border:0;border-radius:12px;padding:13px 16px;font-size:15px;font-weight:800;cursor:pointer;min-height:46px}
+.primary{background:#009b4d;color:#fff}
+.secondary{background:#fff;color:#163025;border:2px solid #cbdcd2}
+.danger{background:#c62828;color:#fff}
+.primary:disabled,.secondary:disabled{opacity:.45;cursor:not-allowed}
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+.grid.two{grid-template-columns:repeat(2,1fr)}
+label{font-weight:800;font-size:13px;color:#33473b}
+input,select,textarea{display:block;width:100%;margin-top:6px;border:1px solid #c8d8cf;border-radius:10px;padding:11px 12px;background:#fbfefc;color:#17221b;font:inherit;font-weight:500}
+textarea{min-height:60px;resize:vertical}
+.link-btn{background:none;border:0;color:#087c3d;font-weight:800;text-decoration:underline;cursor:pointer;font-size:13px}
+.hint{padding:8px 0;color:#5c6d63;text-align:left;font-size:12.5px}
+.parse-msg{margin:10px 0;padding:10px 14px;border-radius:10px;font-weight:700;font-size:13.5px}
+.parse-msg.ok{background:#e8f7ee;color:#087c3d}
+.parse-msg.warn{background:#fff8d9;color:#5a4700}
+.parse-msg.err{background:#fdeaea;color:#a11616}
+
+.tabs{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+.tab{border:2px solid #cbdcd2;background:#fff;color:#33473b;font-weight:800;padding:10px 16px;border-radius:999px;cursor:pointer;font-size:13.5px}
+.tab.active{background:#009b4d;border-color:#009b4d;color:#fff}
+.apptabs{position:sticky;top:66px;background:#f2faf5;z-index:4;padding:10px 0 4px}
+
+.scanner{position:relative;background:#08110d;border-radius:16px;overflow:hidden;margin:12px 0;padding-bottom:12px}
+.scanner video{display:block;width:100%;height:320px;object-fit:cover}
+.scan-overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;pointer-events:none}
+.scan-frame{width:min(68vw,280px);height:min(68vw,280px);border:4px solid #fff;border-radius:20px;box-shadow:0 0 0 999px #0005}
+.scan-hint{margin-top:12px;color:#fff;font-weight:800;text-shadow:0 1px 3px #000}
+.scanner .danger{display:block;margin:10px auto 0}
+
+.result-list{display:flex;flex-direction:column;gap:8px}
+.result-item{border:1px solid #d8e7dd;border-radius:12px;padding:12px 14px;cursor:pointer;background:#fbfefc;display:flex;justify-content:space-between;gap:10px;align-items:center}
+.result-item:hover{background:#eef8f2}
+.result-item .rmain{font-weight:800;font-size:14px}
+.result-item .rsub{font-size:12px;color:#5c6d63}
+.result-item .rstage{font-size:11px;font-weight:800;background:#eef8f2;color:#087c3d;border-radius:999px;padding:4px 9px;white-space:nowrap}
+.empty-note{color:#87958c;font-size:13px;padding:10px 2px}
+
+.rc-header{background:#f7fbf8;border:1px solid #dbe9e0;border-radius:14px;padding:14px;margin-bottom:16px}
+.rc-header .rc-title{font-size:17px;font-weight:900;color:#0a3d20;margin-bottom:6px}
+.rc-header .rc-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;font-size:13px}
+.rc-header .rc-grid div.k{color:#5c6d63;font-weight:700;display:inline}
+.rc-header .rc-grid div.v{font-weight:700;display:inline}
+.status-pill{display:inline-block;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:800;background:#eef8f2;color:#087c3d}
+.status-pill.scrapped{background:#fdeaea;color:#a11616}
+.status-pill.on_hold{background:#fff8d9;color:#5a4700}
+
+.action-grid{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:16px}
+.action-grid button{flex:1;min-width:150px}
+
+.form-card{border:1px solid #dbe9e0;border-radius:14px;padding:16px;margin-bottom:16px;background:#fbfefc}
+.form-card h4{margin:0 0 12px;font-size:14.5px;color:#0a3d20}
+
+.timeline{display:flex;flex-direction:column;gap:10px}
+.tl-item{border-left:3px solid #009b4d;padding:8px 0 8px 14px;position:relative}
+.tl-item .tl-type{font-weight:900;font-size:12.5px;color:#087c3d;text-transform:uppercase;letter-spacing:.03em}
+.tl-item .tl-detail{font-size:13.5px;margin-top:2px}
+.tl-item .tl-meta{font-size:11.5px;color:#87958c;margin-top:3px}
+.tl-item.rejection{border-left-color:#c62828}
+.tl-item.rework{border-left-color:#e0a300}
+
+.photo-row{margin-top:10px}
+.photo-thumbs{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.photo-thumbs img{width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid #d0dfd5}
+
+.hidden{display:none!important}
+.toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:#17221b;color:#fff;padding:12px 16px;border-radius:12px;z-index:20;display:none;max-width:90%;font-weight:700}
+
+@media(max-width:700px){
+  .container{padding:12px}.panel{padding:14px}.topbar{padding:10px 12px}
+  .logo{width:90px;height:34px}.brand{font-size:17px}.subtitle{font-size:10px}
+  .grid,.grid.two{grid-template-columns:1fr}
+  .actions button{width:100%}
+  .scanner video{max-height:56vh}
+  .rc-header .rc-grid{grid-template-columns:1fr}
+  .apptabs{top:60px}
+}
