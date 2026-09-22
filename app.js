@@ -26,10 +26,16 @@ function show(el){el.classList.remove('hidden')} function hide(el){el.classList.
    VIEW SWITCHING
    ============================================================ */
 function showView(name){
+  hide($('view-loading'));
   ['auth','profile-setup','pending','app'].forEach(v=>{
     const el=$('view-'+v);
     if(v===name) show(el); else hide(el);
   });
+}
+function showLoading(text){
+  $('loadingText').textContent=text||'Loading…';
+  show($('view-loading'));
+  ['auth','profile-setup','pending','app'].forEach(v=>hide($('view-'+v)));
 }
 function showAppTab(name){
   document.querySelectorAll('.apptab').forEach(el=>el.classList.add('hidden'));
@@ -60,9 +66,11 @@ function stageName(id){ const s=STAGES.find(x=>x.id===id); return s?s.name:'—'
 function stageCode(id){ const s=STAGES.find(x=>x.id===id); return s?s.code:null; }
 
 async function refreshSessionState(){
+  showLoading('Loading…');
   const {data:{session}}=await sb.auth.getSession();
   if(!session){ currentUser=null; currentProfile=null; showView('auth'); hide($('userBox')); return; }
   currentUser=session.user;
+  showLoading('Updating Material Status…');
   await loadStages();
   const {data:profile}=await sb.from('profiles').select('*').eq('id',currentUser.id).maybeSingle();
   currentProfile=profile;
@@ -70,6 +78,7 @@ async function refreshSessionState(){
   if(!profile.role){ showView('pending'); hide($('userBox')); return; }
   $('userName').textContent=profile.full_name;
   $('userRoleBadge').textContent=profile.role.toUpperCase();
+  $('urgentTabBtn').classList.toggle('hidden', !['admin','supervisor'].includes(profile.role));
   show($('userBox'));
   showView('app');
   showAppTab('dashboard');
@@ -169,6 +178,18 @@ function parseRouteCardQR(raw){
     heatNo:p[10], ucBatch:p[12]||p[11]||'', batchQty:p[13], unit, raw
   };
 }
+function dateStamp(){ const d=new Date(); const p=n=>String(n).padStart(2,'0'); return `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}`; }
+function batchCode(ucBatch){ return (ucBatch||'').trim().split(/\s+/)[0].toUpperCase().replace(/[^A-Z0-9-]/g,''); }
+function suggestRouteCardNo(ucBatch){ const bc=batchCode(ucBatch); return bc ? `RC-${dateStamp()}-${bc}` : ''; }
+function maybeAutoFillRouteCardNo(){
+  if(!val('nrcRouteCardNo')){
+    const suggestion=suggestRouteCardNo(val('nrcUcBatch'));
+    if(suggestion) setv('nrcRouteCardNo', suggestion);
+  }
+}
+$('nrcUcBatch').addEventListener('input', maybeAutoFillRouteCardNo);
+$('nrcUcBatch').addEventListener('blur', maybeAutoFillRouteCardNo);
+
 function onQrScanned(raw){
   const parsed=parseRouteCardQR(raw);
   if(scanTargetMode==='newrc'){
@@ -179,6 +200,7 @@ function onQrScanned(raw){
     setv('nrcHeatBatch',parsed.heatNo);
     setv('nrcQty', parsed.batchQty);
     if(!val('nrcPoQty')) setv('nrcPoQty', parsed.poQty);
+    setv('nrcRouteCardNo', suggestRouteCardNo(parsed.ucBatch));
     window.__lastScannedQr=raw;
     toast('QR data loaded — please verify the fields.');
   } else {
@@ -240,10 +262,10 @@ function renderResultList(container, rows, emptyMsg){
   rows.forEach(rc=>{
     const part=rc.pos?.parts;
     const div=document.createElement('div');
-    div.className='result-item';
+    div.className='result-item'+(rc.is_urgent?' urgent':'');
     div.innerHTML=`
       <div>
-        <div class="rmain">${part?part.part_number:'—'} — ${rc.route_card_no}</div>
+        <div class="rmain">${part?part.part_number:'—'} — ${rc.route_card_no}${rc.is_urgent?' <span class="urgent-badge">🔴 URGENT</span>':''}</div>
         <div class="rsub">PO ${rc.pos?.po_number||'—'} · UC ${rc.uc_batch||'—'} · Heat ${rc.heat_batch||'—'} · Qty ${rc.qty}</div>
       </div>
       <span class="rstage">${stageName(rc.current_stage_id)}</span>
@@ -293,8 +315,11 @@ async function loadInbox(){
    ============================================================ */
 $('createRcBtn').onclick=async()=>{
   const msg=$('newrcMsg'); msg.classList.remove('hidden','ok','warn','err');
-  const partNo=val('nrcPartNo'), poNo=val('nrcPoNo'), rcNo=val('nrcRouteCardNo'), qty=parseFloat(val('nrcQty'));
-  if(!partNo||!poNo||!rcNo||!qty){ msg.classList.add('err'); msg.textContent='Part Number, PO Number, Route Card No. and Quantity are required.'; return; }
+  const partNo=val('nrcPartNo'), poNo=val('nrcPoNo'), ucBatch=val('nrcUcBatch'), qty=parseFloat(val('nrcQty'));
+  if(!partNo||!poNo||!ucBatch||!qty){ msg.classList.add('err'); msg.textContent='Part Number, PO Number, UC Batch No. and Route Card Quantity are required.'; return; }
+  let rcNo=val('nrcRouteCardNo');
+  if(!rcNo){ rcNo=suggestRouteCardNo(ucBatch); setv('nrcRouteCardNo', rcNo); }
+  if(!rcNo){ msg.classList.add('err'); msg.textContent='Could not generate a Route Card No. — check the UC Batch value.'; return; }
 
   try{
     let {data:part}=await sb.from('parts').select('*').eq('part_number',partNo).maybeSingle();
@@ -309,7 +334,7 @@ $('createRcBtn').onclick=async()=>{
       if(poe) throw poe; po=npo;
     }
     const {data:rc,error:rce}=await sb.from('route_cards').insert({
-      route_card_no:rcNo, po_id:po.id, uc_batch:val('nrcUcBatch')||null, heat_batch:val('nrcHeatBatch')||null,
+      route_card_no:rcNo, po_id:po.id, uc_batch:ucBatch, heat_batch:val('nrcHeatBatch')||null,
       qty, qr_payload:window.__lastScannedQr||null, created_by:currentUser.id
     }).select().single();
     if(rce) throw rce;
@@ -355,6 +380,59 @@ async function loadPoDashboard(){
 }
 
 /* ============================================================
+   URGENT / TOP PRIORITY (admin + supervisor only)
+   ============================================================ */
+$('loadUrgentBtn').onclick=loadUrgentList;
+document.querySelector('[data-apptab="urgent"]').addEventListener('click', loadUrgentList);
+async function loadUrgentList(){
+  const box=$('urgentList');
+  box.innerHTML='<p class="empty-note">Loading…</p>';
+  const {data,error}=await sb.from('urgent_route_cards').select('*');
+  if(error){ box.innerHTML=`<p class="empty-note">Could not load: ${error.message}</p>`; return; }
+  if(!data.length){ box.innerHTML='<p class="empty-note">No urgent material right now.</p>'; return; }
+  box.innerHTML='';
+  data.forEach(rc=>{
+    const div=document.createElement('div');
+    div.className='result-item urgent';
+    div.innerHTML=`
+      <div>
+        <div class="rmain">${rc.part_number} — ${rc.route_card_no} <span class="urgent-badge">🔴 URGENT</span></div>
+        <div class="rsub">PO ${rc.po_number||'—'} · UC ${rc.uc_batch||'—'} · Qty ${rc.qty}${rc.urgent_reason?' · '+rc.urgent_reason:''}</div>
+      </div>
+      <span class="rstage">${stageName(rc.current_stage_id)}</span>
+    `;
+    div.onclick=()=>openRouteCard(rc.id);
+    box.appendChild(div);
+  });
+}
+function renderRcUrgentControl(rc){
+  const box=$('rcUrgentControl');
+  if(!['admin','supervisor'].includes(currentProfile.role)){ box.innerHTML=''; return; }
+  if(rc.is_urgent){
+    box.innerHTML=`<div class="form-card"><h4>🔴 Marked Urgent</h4><p class="hint">${rc.urgent_reason||'No reason given.'}</p>
+      <div class="actions"><button class="secondary" id="unmarkUrgentBtn">Remove Urgent Flag</button></div></div>`;
+    $('unmarkUrgentBtn').onclick=async()=>{
+      const {error}=await sb.from('route_cards').update({is_urgent:false, urgent_reason:null}).eq('id',rc.id);
+      if(error){ toast('Could not update: '+error.message); return; }
+      toast('Urgent flag removed.');
+      openRouteCard(rc.id);
+    };
+  } else {
+    box.innerHTML=`<div class="form-card"><h4>Mark as Urgent / Top Priority</h4>
+      <label>Reason<input id="urgentReason" placeholder="Optional — why is this urgent?"></label>
+      <div class="actions"><button class="danger" id="markUrgentBtn">🔴 Mark Urgent</button></div></div>`;
+    $('markUrgentBtn').onclick=async()=>{
+      const {error}=await sb.from('route_cards').update({
+        is_urgent:true, urgent_reason:val('urgentReason')||null, urgent_set_by:currentUser.id, urgent_set_at:new Date().toISOString()
+      }).eq('id',rc.id);
+      if(error){ toast('Could not update: '+error.message); return; }
+      toast('Marked urgent.');
+      openRouteCard(rc.id);
+    };
+  }
+}
+
+/* ============================================================
    ROUTE CARD DETAIL
    ============================================================ */
 $('backToDashboard').onclick=()=>showAppTab('dashboard');
@@ -368,6 +446,7 @@ async function openRouteCard(id){
   if(error){ $('rcHeader').innerHTML=`<p class="empty-note">Could not load Route Card: ${error.message}</p>`; return; }
   currentRouteCard=rc;
   renderRcHeader(rc);
+  renderRcUrgentControl(rc);
   renderRcActions(rc);
   loadRcAwaiting(rc.id);
   loadRcTimeline(rc.id);
@@ -376,7 +455,7 @@ async function openRouteCard(id){
 function renderRcHeader(rc){
   const part=rc.pos?.parts;
   $('rcHeader').innerHTML=`
-    <div class="rc-title">${part?part.part_number:'—'} — ${rc.route_card_no}</div>
+    <div class="rc-title">${part?part.part_number:'—'} — ${rc.route_card_no}${rc.is_urgent?'<span class="urgent-badge">🔴 URGENT</span>':''}</div>
     <div class="rc-grid">
       <div><div class="k">PO No.:</div> <div class="v">${rc.pos?.po_number||'—'}</div></div>
       <div><div class="k">Customer:</div> <div class="v">${rc.pos?.customer_name||'—'}</div></div>
