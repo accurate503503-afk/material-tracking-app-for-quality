@@ -80,7 +80,29 @@ two different phones, see the same live data.
   database level (an `UPDATE` or `DELETE` on `audit_log` or
   `quantity_movements` is actually rejected by Postgres, not just
   discouraged by the app).
-- **PO Dashboard** — a basic quantity reconciliation view per PO.
+- **PO Dashboard** — Part No. as heading, PO No. as subheading, and
+  every Route Card under that PO listed with its own live current
+  stage (a PO can have several Route Cards/batches, each at a
+  different point in the process, so this is shown per-Route-Card
+  rather than as a single aggregate count).
+- **Urgent / Top Priority** — `admin` and `supervisor` only can flag a
+  Route Card urgent (with an optional reason) from its own page, and
+  get a dedicated tab listing every urgent Route Card plant-wide.
+  Anyone can still see the 🔴 badge on a Route Card they already have
+  open.
+- **Awaiting My Receipt** sits in its own highlighted box on the
+  Dashboard that visibly pulses whenever there's at least one handover
+  waiting on you, so it's hard to miss.
+- **Back button** — from any screen other than the Dashboard, a single
+  back press returns you to the Dashboard. From the Dashboard itself,
+  one back press warns "Press back again to exit"; only a second press
+  within ~2 seconds is allowed to actually leave the app.
+- **Special Process** (Carburizing / Heat Treatment / Induction) is
+  now a real stage, positioned after Marking/MPI-PMI and before Final
+  Inspection, matching section 4 of the original spec. No dedicated
+  role is mapped to it yet — only `admin` can complete it for now (see
+  the note in `phase1_patch_05.sql` for how to add a dedicated role
+  later).
 
 ## Known Phase 1 simplifications (by design, not oversights)
 
@@ -102,8 +124,19 @@ two different phones, see the same live data.
 - **CMM required/not-required** is not yet surfaced as an explicit
   toggle in the UI, though the `route_cards.cmm_required` column exists
   and is ready for it.
-- **Special Process** tracking is intentionally out of scope, per the
-  spec, but nothing in the schema blocks adding it later.
+- **Special Process** now has a stage and shows up everywhere stages
+  are listed (Complete Stage for admins, Release/Handover destination,
+  Rework/Rejection stage pickers). What's still Phase 2: a dedicated
+  role for it, and any richer workflow beyond "it's a stage like any
+  other."
+
+## Setup order, updated
+
+If you're setting this up from scratch, run the SQL patches in this
+exact order: `phase1_schema.sql` → `phase1_patch_01.sql` →
+`phase1_patch_02.sql` → `phase1_patch_03.sql` → `phase1_patch_04a.sql`
+→ `phase1_patch_04b.sql` → `phase1_patch_05.sql`. If you already had
+01–03 running, you only need to add 04a, 04b and 05.
 
 ## Testing checklist (needs two real accounts on two devices)
 

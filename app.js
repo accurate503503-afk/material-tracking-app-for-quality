@@ -23,6 +23,41 @@ function fmtDt(iso){ if(!iso) return '—'; const d=new Date(iso); const p=n=>St
 function show(el){el.classList.remove('hidden')} function hide(el){el.classList.add('hidden')}
 
 /* ============================================================
+   BACK-BUTTON HANDLING
+   Single back press from any non-Dashboard tab/screen returns to the
+   Dashboard. Pressing back again while already on the Dashboard shows
+   a "press again to exit" warning; only a second press within ~2.2s
+   is allowed to actually leave/exit the app (default browser/OS
+   behavior takes over at that point).
+   ============================================================ */
+let __backArmed=false, __backTimer=null;
+function pushAppState(tag){ try{ history.pushState({tag}, '', location.href); }catch(e){} }
+function initBackHandling(){
+  if(window.__backInit) return;
+  window.__backInit=true;
+  pushAppState('dashboard');
+}
+window.addEventListener('popstate', ()=>{
+  if($('view-app').classList.contains('hidden')) return; // not signed in yet — default behavior
+  const activeTab=[...document.querySelectorAll('.apptab')].find(el=>!el.classList.contains('hidden'));
+  const tabId=activeTab ? activeTab.id.replace('apptab-','') : 'dashboard';
+  if(tabId!=='dashboard'){
+    showAppTab('dashboard');
+    pushAppState('dashboard');
+    return;
+  }
+  if(!__backArmed){
+    __backArmed=true;
+    toast('Press back again to exit');
+    pushAppState('dashboard-guard');
+    clearTimeout(__backTimer);
+    __backTimer=setTimeout(()=>{ __backArmed=false; }, 2200);
+  }
+  // second press while already armed: we deliberately do NOT push a new
+  // state here, so the browser's own back/exit behavior proceeds.
+});
+
+/* ============================================================
    VIEW SWITCHING
    ============================================================ */
 function showView(name){
@@ -81,6 +116,7 @@ async function refreshSessionState(){
   $('urgentTabBtn').classList.toggle('hidden', !['admin','supervisor'].includes(profile.role));
   show($('userBox'));
   showView('app');
+  initBackHandling();
   showAppTab('dashboard');
   loadInbox();
 }
@@ -265,8 +301,9 @@ function renderResultList(container, rows, emptyMsg){
     div.className='result-item'+(rc.is_urgent?' urgent':'');
     div.innerHTML=`
       <div>
-        <div class="rmain">${part?part.part_number:'—'} — ${rc.route_card_no}${rc.is_urgent?' <span class="urgent-badge">🔴 URGENT</span>':''}</div>
-        <div class="rsub">PO ${rc.pos?.po_number||'—'} · UC ${rc.uc_batch||'—'} · Heat ${rc.heat_batch||'—'} · Qty ${rc.qty}</div>
+        <div class="rmain">${part?part.part_number:'—'}${rc.is_urgent?' <span class="urgent-badge">🔴 URGENT</span>':''}</div>
+        <div class="rsub">PO ${rc.pos?.po_number||'—'}</div>
+        <div class="rmeta">RC ${rc.route_card_no} · UC ${rc.uc_batch||'—'} · Heat ${rc.heat_batch||'—'} · Qty ${rc.qty}</div>
       </div>
       <span class="rstage">${stageName(rc.current_stage_id)}</span>
     `;
@@ -282,7 +319,7 @@ async function loadInbox(){
   const box=$('inboxList');
   box.innerHTML='<p class="empty-note">Loading…</p>';
   const {data,error}=await sb.from('handovers')
-    .select('*, route_cards(route_card_no, uc_batch, heat_batch, qty, pos(po_number, parts(part_number)))')
+    .select('*, route_cards(route_card_no, uc_batch, heat_batch, qty, is_urgent, pos(po_number, parts(part_number)))')
     .eq('status','awaiting_receipt')
     .order('released_at',{ascending:false});
   if(error){ box.innerHTML=`<p class="empty-note">Could not load inbox: ${error.message}</p>`; return; }
@@ -292,16 +329,18 @@ async function loadInbox(){
     return allowed===null || (allowed && allowed.includes(code));
   });
   $('inboxCount').textContent=mine.length;
+  $('inboxBox').classList.toggle('has-items', mine.length>0);
   if(!mine.length){ box.innerHTML='<p class="empty-note">Nothing awaiting your receipt right now.</p>'; return; }
   box.innerHTML='';
   mine.forEach(h=>{
     const rc=h.route_cards, part=rc?.pos?.parts;
     const div=document.createElement('div');
-    div.className='result-item';
+    div.className='result-item'+(rc?.is_urgent?' urgent':'');
     div.innerHTML=`
       <div>
-        <div class="rmain">${part?part.part_number:'—'} — ${rc?.route_card_no||'—'}</div>
-        <div class="rsub">Qty ${h.quantity} → ${stageName(h.to_stage_id)} · released ${fmtDt(h.released_at)}</div>
+        <div class="rmain">${part?part.part_number:'—'}${rc?.is_urgent?' <span class="urgent-badge">🔴 URGENT</span>':''}</div>
+        <div class="rsub">PO ${rc?.pos?.po_number||'—'}</div>
+        <div class="rmeta">RC ${rc?.route_card_no||'—'} · Qty ${h.quantity} → ${stageName(h.to_stage_id)} · released ${fmtDt(h.released_at)}</div>
       </div>
       <span class="rstage">Receive</span>
     `;
@@ -351,32 +390,39 @@ $('createRcBtn').onclick=async()=>{
 
 /* ============================================================
    PO DASHBOARD
+   Shows Part No. as heading, PO No. as subheading, and — instead of
+   aggregate active/completed/scrapped counts — the actual current
+   stage of every Route Card (batch) under that PO, since a single PO
+   can have several Route Cards each at a different stage.
    ============================================================ */
 $('loadPoDashBtn').onclick=loadPoDashboard;
 async function loadPoDashboard(){
   const box=$('poDashList');
   box.innerHTML='<p class="empty-note">Loading…</p>';
-  const {data,error}=await sb.from('po_dashboard').select('*').order('po_number');
+  const {data:poRows,error}=await sb.from('pos').select('*, parts(part_number, description)').order('po_number');
   if(error){ box.innerHTML=`<p class="empty-note">Could not load: ${error.message}</p>`; return; }
-  if(!data.length){ box.innerHTML='<p class="empty-note">No POs yet.</p>'; return; }
+  if(!poRows.length){ box.innerHTML='<p class="empty-note">No POs yet.</p>'; return; }
   box.innerHTML='';
-  data.forEach(po=>{
+  for(const po of poRows){
+    const {data:rcs}=await sb.from('route_cards').select('id, route_card_no, qty, current_stage_id, is_urgent, status').eq('po_id',po.id).order('created_at',{ascending:false});
     const div=document.createElement('div');
-    div.className='result-item';
+    div.className='po-card';
+    const rcRows=(rcs||[]).map(rc=>`
+      <div class="po-rc-row ${rc.is_urgent?'urgent':''}" data-rcid="${rc.id}">
+        <span>${rc.route_card_no}${rc.is_urgent?' 🔴':''}</span>
+        <span>Qty ${rc.qty}</span>
+        <span class="rstage">${rc.status==='scrapped'?'Scrapped':stageName(rc.current_stage_id)}</span>
+      </div>`).join('') || '<p class="empty-note">No Route Cards registered yet.</p>';
     div.innerHTML=`
-      <div>
-        <div class="rmain">PO ${po.po_number}</div>
-        <div class="rsub">PO Qty ${po.po_qty} · Active ${po.qty_active_route_cards} · Completed ${po.qty_completed_route_cards} · Scrapped ${po.qty_scrapped_route_cards} · ${po.route_card_count} Route Card(s)</div>
-      </div>
-      <span class="rstage">View</span>
+      <div class="rmain">${po.parts?.part_number||'—'}</div>
+      <div class="rsub">PO ${po.po_number}${po.customer_name?' · '+po.customer_name:''} · PO Qty ${po.po_qty}</div>
+      ${rcRows}
     `;
-    div.onclick=async()=>{
-      showAppTab('dashboard');
-      $('searchBox').value=po.po_number;
-      await runSearch();
-    };
+    div.querySelectorAll('.po-rc-row').forEach(rowEl=>{
+      rowEl.addEventListener('click', ()=>openRouteCard(rowEl.getAttribute('data-rcid')));
+    });
     box.appendChild(div);
-  });
+  }
 }
 
 /* ============================================================
@@ -396,8 +442,9 @@ async function loadUrgentList(){
     div.className='result-item urgent';
     div.innerHTML=`
       <div>
-        <div class="rmain">${rc.part_number} — ${rc.route_card_no} <span class="urgent-badge">🔴 URGENT</span></div>
-        <div class="rsub">PO ${rc.po_number||'—'} · UC ${rc.uc_batch||'—'} · Qty ${rc.qty}${rc.urgent_reason?' · '+rc.urgent_reason:''}</div>
+        <div class="rmain">${rc.part_number} <span class="urgent-badge">🔴 URGENT</span></div>
+        <div class="rsub">PO ${rc.po_number||'—'}</div>
+        <div class="rmeta">RC ${rc.route_card_no} · UC ${rc.uc_batch||'—'} · Qty ${rc.qty}${rc.urgent_reason?' · '+rc.urgent_reason:''}</div>
       </div>
       <span class="rstage">${stageName(rc.current_stage_id)}</span>
     `;

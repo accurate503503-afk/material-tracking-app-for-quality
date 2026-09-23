@@ -46,10 +46,18 @@ textarea{min-height:60px;resize:vertical}
 .result-list{display:flex;flex-direction:column;gap:8px}
 .result-item{border:1px solid #d8e7dd;border-radius:12px;padding:12px 14px;cursor:pointer;background:#fbfefc;display:flex;justify-content:space-between;gap:10px;align-items:center}
 .result-item:hover{background:#eef8f2}
-.result-item .rmain{font-weight:800;font-size:14px}
-.result-item .rsub{font-size:12px;color:#5c6d63}
+.result-item .rmain{font-weight:900;font-size:15px}
+.result-item .rsub{font-size:12.5px;color:#33473b;font-weight:700;margin-top:1px}
+.result-item .rmeta{font-size:11px;color:#87958c;margin-top:2px}
 .result-item .rstage{font-size:11px;font-weight:800;background:#eef8f2;color:#087c3d;border-radius:999px;padding:4px 9px;white-space:nowrap}
 .empty-note{color:#87958c;font-size:13px;padding:10px 2px}
+
+.inbox-box{border:2px solid #f0b400;background:#fff8e1;border-radius:16px;padding:14px;margin-top:20px}
+.inbox-box.has-items{animation:inboxPulse 1.6s ease-in-out infinite}
+@keyframes inboxPulse{
+  0%,100%{box-shadow:0 0 0 0 rgba(240,180,0,.45);background:#fff8e1}
+  50%{box-shadow:0 0 0 9px rgba(240,180,0,0);background:#fff1c2}
+}
 
 .rc-header{background:#f7fbf8;border:1px solid #dbe9e0;border-radius:14px;padding:14px;margin-bottom:16px}
 .rc-header .rc-title{font-size:17px;font-weight:900;color:#0a3d20;margin-bottom:6px}
@@ -59,6 +67,14 @@ textarea{min-height:60px;resize:vertical}
 .status-pill{display:inline-block;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:800;background:#eef8f2;color:#087c3d}
 .status-pill.scrapped{background:#fdeaea;color:#a11616}
 .status-pill.on_hold{background:#fff8d9;color:#5a4700}
+
+.po-card{border:1px solid #d8e7dd;border-radius:14px;padding:14px;margin-bottom:12px;background:#fbfefc}
+.po-card .rmain{font-weight:900;font-size:15px}
+.po-card .rsub{font-size:12.5px;color:#33473b;font-weight:700;margin:2px 0 10px}
+.po-rc-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 10px;border-radius:10px;background:#fff;border:1px solid #e6efe9;margin-bottom:6px;cursor:pointer;font-size:12.5px}
+.po-rc-row:hover{background:#eef8f2}
+.po-rc-row.urgent{border-color:#e58a8a;background:#fff6f6}
+.po-rc-row:last-child{margin-bottom:0}
 
 .action-grid{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:16px}
 .action-grid button{flex:1;min-width:150px}
