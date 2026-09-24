@@ -130,6 +130,7 @@
       <label class="req">Part Number<input id="nrcPartNo" placeholder="e.g. H078276200"></label>
       <label>Part Description (if new)<input id="nrcPartDesc" placeholder="Optional"></label>
       <label class="req">PO Number<input id="nrcPoNo" placeholder="e.g. 4513493344"></label>
+      <label class="req">PO Line No.<input id="nrcPoLine" placeholder="e.g. 10, 20, 30…"></label>
       <label>Customer Name (if new PO)<input id="nrcCustomer" placeholder="Optional"></label>
       <label>PO Quantity (if new PO)<input id="nrcPoQty" type="number" step="0.001" placeholder="e.g. 100"></label>
       <label>Route Card No. <span class="autolabel">(auto-generated — edit if needed)</span><input id="nrcRouteCardNo" placeholder="Auto-fills once UC Batch is entered"></label>
@@ -145,6 +146,11 @@
   <section class="panel apptab hidden" id="apptab-podash">
     <div class="section-head"><h2>PO-Level Dashboard</h2></div>
     <div class="actions"><button class="secondary" id="loadPoDashBtn">Refresh</button></div>
+
+    <div class="section-head"><h3>Material Status — All Stages</h3></div>
+    <div id="stageSummaryBox"></div>
+
+    <div class="section-head" style="margin-top:18px;"><h3>By Purchase Order <span class="autolabel">(tap a PO to see its own breakdown)</span></h3></div>
     <div id="poDashList" class="result-list"></div>
   </section>
 

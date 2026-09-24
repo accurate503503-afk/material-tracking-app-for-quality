@@ -232,6 +232,7 @@ function onQrScanned(raw){
     if(!parsed){ toast('QR detected, but its format was not recognized. Enter fields manually.'); return; }
     setv('nrcPartNo',parsed.partNumber);
     setv('nrcPoNo',parsed.poNo);
+    setv('nrcPoLine',parsed.poLine);
     setv('nrcUcBatch',parsed.ucBatch);
     setv('nrcHeatBatch',parsed.heatNo);
     setv('nrcQty', parsed.batchQty);
@@ -315,13 +316,30 @@ function renderResultList(container, rows, emptyMsg){
 /* ============================================================
    INBOX — handovers awaiting receipt matching my role
    ============================================================ */
+/* ============================================================
+   Defensive helper: returns the set of currently-urgent Route Card
+   IDs, or an empty set if the urgent-flag migration hasn't been
+   applied yet (so a pending database migration can never break core
+   screens like the inbox — it just means no badges show yet).
+   ============================================================ */
+async function getUrgentIdSet(){
+  try{
+    const {data,error}=await sb.from('route_cards').select('id').eq('is_urgent',true);
+    if(error) return new Set();
+    return new Set((data||[]).map(r=>r.id));
+  }catch(e){ return new Set(); }
+}
+
 async function loadInbox(){
   const box=$('inboxList');
   box.innerHTML='<p class="empty-note">Loading…</p>';
-  const {data,error}=await sb.from('handovers')
-    .select('*, route_cards(route_card_no, uc_batch, heat_batch, qty, is_urgent, pos(po_number, parts(part_number)))')
-    .eq('status','awaiting_receipt')
-    .order('released_at',{ascending:false});
+  const [{data,error}, urgentIds]=await Promise.all([
+    sb.from('handovers')
+      .select('*, route_cards(route_card_no, uc_batch, heat_batch, qty, pos(po_number, parts(part_number)))')
+      .eq('status','awaiting_receipt')
+      .order('released_at',{ascending:false}),
+    getUrgentIdSet()
+  ]);
   if(error){ box.innerHTML=`<p class="empty-note">Could not load inbox: ${error.message}</p>`; return; }
   const mine = currentProfile.role==='admin' ? data : data.filter(h=>{
     const code=stageCode(h.to_stage_id);
@@ -334,11 +352,12 @@ async function loadInbox(){
   box.innerHTML='';
   mine.forEach(h=>{
     const rc=h.route_cards, part=rc?.pos?.parts;
+    const isUrgent=urgentIds.has(h.route_card_id);
     const div=document.createElement('div');
-    div.className='result-item'+(rc?.is_urgent?' urgent':'');
+    div.className='result-item'+(isUrgent?' urgent':'');
     div.innerHTML=`
       <div>
-        <div class="rmain">${part?part.part_number:'—'}${rc?.is_urgent?' <span class="urgent-badge">🔴 URGENT</span>':''}</div>
+        <div class="rmain">${part?part.part_number:'—'}${isUrgent?' <span class="urgent-badge">🔴 URGENT</span>':''}</div>
         <div class="rsub">PO ${rc?.pos?.po_number||'—'}</div>
         <div class="rmeta">RC ${rc?.route_card_no||'—'} · Qty ${h.quantity} → ${stageName(h.to_stage_id)} · released ${fmtDt(h.released_at)}</div>
       </div>
@@ -353,25 +372,47 @@ async function loadInbox(){
    NEW ROUTE CARD — find-or-create Part / PO, then create Route Card
    ============================================================ */
 $('createRcBtn').onclick=async()=>{
+  const btn=$('createRcBtn');
+  if(btn.disabled) return; // guards against double-submit / duplicate creation
   const msg=$('newrcMsg'); msg.classList.remove('hidden','ok','warn','err');
-  const partNo=val('nrcPartNo'), poNo=val('nrcPoNo'), ucBatch=val('nrcUcBatch'), qty=parseFloat(val('nrcQty'));
-  if(!partNo||!poNo||!ucBatch||!qty){ msg.classList.add('err'); msg.textContent='Part Number, PO Number, UC Batch No. and Route Card Quantity are required.'; return; }
+  const partNo=val('nrcPartNo'), poNo=val('nrcPoNo'), poLine=val('nrcPoLine'), ucBatch=val('nrcUcBatch'), qty=parseFloat(val('nrcQty'));
+  if(!partNo||!poNo||!poLine||!ucBatch||!qty){ msg.classList.add('err'); msg.textContent='Part Number, PO Number, PO Line No., UC Batch No. and Route Card Quantity are required.'; return; }
   let rcNo=val('nrcRouteCardNo');
   if(!rcNo){ rcNo=suggestRouteCardNo(ucBatch); setv('nrcRouteCardNo', rcNo); }
   if(!rcNo){ msg.classList.add('err'); msg.textContent='Could not generate a Route Card No. — check the UC Batch value.'; return; }
 
+  btn.disabled=true;
   try{
-    let {data:part}=await sb.from('parts').select('*').eq('part_number',partNo).maybeSingle();
+    // UC Batch is the true unique identity of a Route Card in this
+    // business — check for an existing one first rather than creating
+    // a duplicate.
+    const {data:existingRc, error:existErr}=await sb.from('route_cards').select('id, route_card_no').eq('uc_batch',ucBatch).maybeSingle();
+    if(existErr) throw new Error('Could not check for an existing UC Batch: '+existErr.message);
+    if(existingRc){
+      msg.classList.add('warn');
+      msg.textContent=`UC Batch ${ucBatch} is already registered as Route Card ${existingRc.route_card_no}. Opening it instead of creating a duplicate.`;
+      toast('Opened the existing Route Card for this UC Batch.');
+      openRouteCard(existingRc.id);
+      return;
+    }
+
+    let {data:part, error:partErr}=await sb.from('parts').select('*').eq('part_number',partNo).maybeSingle();
+    if(partErr) throw new Error('Part lookup failed: '+partErr.message);
     if(!part){
       const {data:np,error:pe}=await sb.from('parts').insert({part_number:partNo, description:val('nrcPartDesc')||null}).select().single();
       if(pe) throw pe; part=np;
     }
-    let {data:po}=await sb.from('pos').select('*').eq('po_number',poNo).maybeSingle();
+
+    // PO Number alone is NOT unique — the same PO can have several
+    // Line Items (10, 20, 30…). Uniqueness is (PO Number + PO Line).
+    let {data:po, error:poErr}=await sb.from('pos').select('*').eq('po_number',poNo).eq('po_line',poLine).maybeSingle();
+    if(poErr) throw new Error('PO lookup failed: '+poErr.message);
     if(!po){
       const poQty=parseFloat(val('nrcPoQty'))||qty;
-      const {data:npo,error:poe}=await sb.from('pos').insert({po_number:poNo, part_id:part.id, customer_name:val('nrcCustomer')||null, po_qty:poQty, created_by:currentUser.id}).select().single();
+      const {data:npo,error:poe}=await sb.from('pos').insert({po_number:poNo, po_line:poLine, part_id:part.id, customer_name:val('nrcCustomer')||null, po_qty:poQty, created_by:currentUser.id}).select().single();
       if(poe) throw poe; po=npo;
     }
+
     const {data:rc,error:rce}=await sb.from('route_cards').insert({
       route_card_no:rcNo, po_id:po.id, uc_batch:ucBatch, heat_batch:val('nrcHeatBatch')||null,
       qty, qr_payload:window.__lastScannedQr||null, created_by:currentUser.id
@@ -380,46 +421,95 @@ $('createRcBtn').onclick=async()=>{
 
     msg.classList.add('ok'); msg.textContent=`Route Card ${rcNo} created.`;
     toast('Route Card created.');
-    ['nrcPartNo','nrcPartDesc','nrcPoNo','nrcCustomer','nrcPoQty','nrcRouteCardNo','nrcUcBatch','nrcHeatBatch','nrcQty'].forEach(id=>setv(id,''));
+    ['nrcPartNo','nrcPartDesc','nrcPoNo','nrcPoLine','nrcCustomer','nrcPoQty','nrcRouteCardNo','nrcUcBatch','nrcHeatBatch','nrcQty'].forEach(id=>setv(id,''));
     window.__lastScannedQr=null;
     openRouteCard(rc.id);
   }catch(e){
     msg.classList.add('err'); msg.textContent='Could not create Route Card: '+e.message;
+  }finally{
+    btn.disabled=false;
   }
 };
 
 /* ============================================================
    PO DASHBOARD
-   Shows Part No. as heading, PO No. as subheading, and — instead of
-   aggregate active/completed/scrapped counts — the actual current
-   stage of every Route Card (batch) under that PO, since a single PO
-   can have several Route Cards each at a different stage.
+   Shows Part No. as heading, PO No. (+ PO Line) as subheading, and —
+   instead of aggregate active/completed/scrapped counts — the actual
+   current stage of every Route Card (batch) under that PO, since a
+   single PO can have several Route Cards each at a different stage.
+   Includes a plant-wide stage-wise table + simple bar chart at the
+   top, and each PO card expands on click to show its own breakdown.
    ============================================================ */
+function buildStageBreakdown(rows){
+  const byStage={}; // stageId -> {count, qty}
+  let scrapCount=0, scrapQty=0;
+  rows.forEach(rc=>{
+    if(rc.status==='scrapped'){ scrapCount++; scrapQty+=Number(rc.qty)||0; return; }
+    const key=rc.current_stage_id;
+    if(!byStage[key]) byStage[key]={count:0,qty:0};
+    byStage[key].count++; byStage[key].qty+=Number(rc.qty)||0;
+  });
+  const entries=STAGES.map(s=>({name:s.name, ...(byStage[s.id]||{count:0,qty:0})})).filter(e=>e.count>0);
+  if(scrapCount>0) entries.push({name:'Scrapped', count:scrapCount, qty:scrapQty});
+  return entries;
+}
+function renderStageBreakdownHtml(entries){
+  if(!entries.length) return '<p class="empty-note">No material recorded yet.</p>';
+  const maxQty=Math.max(1,...entries.map(e=>e.qty));
+  let html='<table class="stage-table"><thead><tr><th>Stage</th><th>Route Cards</th><th>Total Qty</th></tr></thead><tbody>';
+  entries.forEach(e=>{ html+=`<tr><td>${e.name}</td><td>${e.count}</td><td>${e.qty}</td></tr>`; });
+  html+='</tbody></table><div class="stage-chart">';
+  entries.forEach(e=>{
+    const pct=Math.max(4,Math.round((e.qty/maxQty)*100));
+    html+=`<div class="stage-bar-row"><span class="stage-bar-label">${e.name}</span><div class="stage-bar-track"><div class="stage-bar-fill" style="width:${pct}%"></div></div><span class="stage-bar-value">${e.qty}</span></div>`;
+  });
+  html+='</div>';
+  return html;
+}
+
 $('loadPoDashBtn').onclick=loadPoDashboard;
 async function loadPoDashboard(){
   const box=$('poDashList');
   box.innerHTML='<p class="empty-note">Loading…</p>';
-  const {data:poRows,error}=await sb.from('pos').select('*, parts(part_number, description)').order('po_number');
+  $('stageSummaryBox').innerHTML='<p class="empty-note">Loading…</p>';
+
+  const [{data:poRows,error}, {data:allRcs}]=await Promise.all([
+    sb.from('pos').select('*, parts(part_number, description)').order('po_number'),
+    sb.from('route_cards').select('qty,current_stage_id,status')
+  ]);
   if(error){ box.innerHTML=`<p class="empty-note">Could not load: ${error.message}</p>`; return; }
+
+  $('stageSummaryBox').innerHTML=renderStageBreakdownHtml(buildStageBreakdown(allRcs||[]));
+
   if(!poRows.length){ box.innerHTML='<p class="empty-note">No POs yet.</p>'; return; }
   box.innerHTML='';
   for(const po of poRows){
-    const {data:rcs}=await sb.from('route_cards').select('id, route_card_no, qty, current_stage_id, is_urgent, status').eq('po_id',po.id).order('created_at',{ascending:false});
+    const {data:rcs}=await sb.from('route_cards').select('id, route_card_no, qty, current_stage_id, status').eq('po_id',po.id).order('created_at',{ascending:false});
     const div=document.createElement('div');
     div.className='po-card';
     const rcRows=(rcs||[]).map(rc=>`
-      <div class="po-rc-row ${rc.is_urgent?'urgent':''}" data-rcid="${rc.id}">
-        <span>${rc.route_card_no}${rc.is_urgent?' 🔴':''}</span>
+      <div class="po-rc-row" data-rcid="${rc.id}">
+        <span>${rc.route_card_no}</span>
         <span>Qty ${rc.qty}</span>
         <span class="rstage">${rc.status==='scrapped'?'Scrapped':stageName(rc.current_stage_id)}</span>
       </div>`).join('') || '<p class="empty-note">No Route Cards registered yet.</p>';
     div.innerHTML=`
-      <div class="rmain">${po.parts?.part_number||'—'}</div>
-      <div class="rsub">PO ${po.po_number}${po.customer_name?' · '+po.customer_name:''} · PO Qty ${po.po_qty}</div>
+      <div class="po-card-head">
+        <div class="rmain">${po.parts?.part_number||'—'}</div>
+        <div class="rsub">PO ${po.po_number}${po.po_line?' · Line '+po.po_line:''}${po.customer_name?' · '+po.customer_name:''} · PO Qty ${po.po_qty}</div>
+      </div>
+      <div class="po-detail hidden"></div>
       ${rcRows}
     `;
+    const headEl=div.querySelector('.po-card-head');
+    const detailEl=div.querySelector('.po-detail');
+    headEl.addEventListener('click', ()=>{
+      const willShow=detailEl.classList.contains('hidden');
+      detailEl.classList.toggle('hidden');
+      if(willShow) detailEl.innerHTML=renderStageBreakdownHtml(buildStageBreakdown(rcs||[]));
+    });
     div.querySelectorAll('.po-rc-row').forEach(rowEl=>{
-      rowEl.addEventListener('click', ()=>openRouteCard(rowEl.getAttribute('data-rcid')));
+      rowEl.addEventListener('click', (e)=>{ e.stopPropagation(); openRouteCard(rowEl.getAttribute('data-rcid')); });
     });
     box.appendChild(div);
   }
