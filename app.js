@@ -114,6 +114,7 @@ async function refreshSessionState(){
   $('userName').textContent=profile.full_name;
   $('userRoleBadge').textContent=profile.role.toUpperCase();
   $('urgentTabBtn').classList.toggle('hidden', !['admin','supervisor'].includes(profile.role));
+  $('newrcTabBtn').classList.toggle('hidden', !['admin','fitting'].includes(profile.role));
   show($('userBox'));
   showView('app');
   initBackHandling();
@@ -288,6 +289,8 @@ async function runSearch(parsedQr){
     (extra||[]).forEach(r=>{ if(!results.find(x=>x.id===r.id)) results.push(r); });
   }
   if(error){ box.innerHTML=`<p class="empty-note">Search failed: ${error.message}</p>`; return; }
+  const deletedIds=await getDeletedIdSet();
+  results=results.filter(r=>!deletedIds.has(r.id));
   renderResultList(box, results, 'No matching Route Cards found.');
 }
 $('searchBtn').onclick=()=>runSearch();
@@ -325,6 +328,16 @@ function renderResultList(container, rows, emptyMsg){
 async function getUrgentIdSet(){
   try{
     const {data,error}=await sb.from('route_cards').select('id').eq('is_urgent',true);
+    if(error) return new Set();
+    return new Set((data||[]).map(r=>r.id));
+  }catch(e){ return new Set(); }
+}
+/* Same defensive pattern for "removed" Route Cards — degrades to
+   showing nothing filtered-out if the migration hasn't run yet, rather
+   than crashing the screen. */
+async function getDeletedIdSet(){
+  try{
+    const {data,error}=await sb.from('route_cards').select('id').eq('is_deleted',true);
     if(error) return new Set();
     return new Set((data||[]).map(r=>r.id));
   }catch(e){ return new Set(); }
@@ -482,9 +495,11 @@ async function loadPoDashboard(){
   $('stageSummaryBox').innerHTML=renderStageBreakdownHtml(buildStageBreakdown(allRcs||[]));
 
   if(!poRows.length){ box.innerHTML='<p class="empty-note">No POs yet.</p>'; return; }
+  const deletedIds=await getDeletedIdSet();
   box.innerHTML='';
   for(const po of poRows){
-    const {data:rcs}=await sb.from('route_cards').select('id, route_card_no, qty, current_stage_id, status').eq('po_id',po.id).order('created_at',{ascending:false});
+    const {data:rcsRaw}=await sb.from('route_cards').select('id, route_card_no, qty, current_stage_id, status').eq('po_id',po.id).order('created_at',{ascending:false});
+    const rcs=(rcsRaw||[]).filter(rc=>!deletedIds.has(rc.id));
     const div=document.createElement('div');
     div.className='po-card';
     const rcRows=(rcs||[]).map(rc=>`
@@ -616,11 +631,25 @@ function renderRcActions(rc){
   buttons.push(['Release / Handover','secondary',()=>renderHandoverForm(rc)]);
   if(REWORK_ROLES.includes(role)) buttons.push(['Raise Rework','secondary',()=>renderReworkForm(rc)]);
   if(REJECTION_ROLES.includes(role)) buttons.push(['Report Rejection','danger',()=>renderRejectionForm(rc)]);
+  if(['admin','supervisor'].includes(role)) buttons.push(['🗑️ Remove Material','danger',()=>removeMaterial(rc)]);
 
   const grid=$('rcActions'); grid.innerHTML='';
   buttons.forEach(([label,cls,fn])=>{
     const b=document.createElement('button'); b.className=cls; b.textContent=label; b.onclick=fn; grid.appendChild(b);
   });
+}
+
+/* Soft delete — admin/supervisor only. Marks the Route Card as removed
+   rather than physically deleting it, so its history stays intact for
+   the audit trail (see fileA_no_enum_dependency.sql for why). */
+async function removeMaterial(rc){
+  if(!confirm(`Remove ${rc.route_card_no} from active views? Its full history is kept and this can be undone in the database if needed — it will just stop appearing in searches and dashboards.`)) return;
+  const {error}=await sb.from('route_cards').update({
+    is_deleted:true, deleted_by:currentUser.id, deleted_at:new Date().toISOString()
+  }).eq('id',rc.id);
+  if(error){ toast('Could not remove: '+error.message); return; }
+  toast('Route Card removed from active views.');
+  showAppTab('dashboard');
 }
 
 /* ---- photo upload helper, used by the forms below ---- */
@@ -716,13 +745,33 @@ async function loadRcAwaiting(routeCardId){
   if(error){ box.innerHTML=`<p class="empty-note">${error.message}</p>`; return; }
   if(!data.length){ box.innerHTML='<p class="empty-note">Nothing awaiting receipt.</p>'; return; }
   box.innerHTML='';
+  // A handover only shows as receivable here if: (a) you're admin, or
+  // (b) your role matches the stage it's headed to AND you weren't the
+  // one who released it. This mirrors the database-level rule (see
+  // fileA_no_enum_dependency.sql) so the sender can never also be the
+  // receiver — that separation is the entire point of the handover
+  // workflow, so this is enforced at both the UI and the database.
+  let shown=0;
   data.forEach(h=>{
+    const isSelf = h.released_by===currentUser.id;
+    const roleOk = currentProfile.role==='admin' || (()=>{
+      const allowed=ROLE_STAGE_MAP[currentProfile.role];
+      return allowed===null || (allowed && allowed.includes(stageCode(h.to_stage_id)));
+    })();
+    const canReceive = roleOk && (currentProfile.role==='admin' || !isSelf);
+
     const div=document.createElement('div');
-    div.className='result-item';
-    div.innerHTML=`<div><div class="rmain">Qty ${h.quantity} → ${stageName(h.to_stage_id)}</div><div class="rsub">Released ${fmtDt(h.released_at)}${h.helper_carrier?' via '+h.helper_carrier:''}</div></div><span class="rstage">Receive</span>`;
-    div.onclick=()=>renderReceiveForm(h);
+    div.className='result-item'+(canReceive?'':' disabled-row');
+    div.innerHTML=`<div><div class="rmain">Qty ${h.quantity} → ${stageName(h.to_stage_id)}</div><div class="rsub">Released ${fmtDt(h.released_at)}${h.helper_carrier?' via '+h.helper_carrier:''}${isSelf?' · released by you':''}</div></div><span class="rstage">${canReceive?'Receive':(isSelf?'Awaiting other party':'Not your stage')}</span>`;
+    if(canReceive){ div.onclick=()=>renderReceiveForm(h); shown++; }
     box.appendChild(div);
   });
+  if(!shown){
+    const note=document.createElement('p');
+    note.className='empty-note';
+    note.textContent='There is material awaiting receipt on this Route Card, but not for your role — or you released it yourself and are waiting on the next person to confirm.';
+    box.appendChild(note);
+  }
 }
 function renderReceiveForm(handover){
   $('rcFormArea').innerHTML=`
