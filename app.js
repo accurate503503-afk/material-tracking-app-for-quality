@@ -335,11 +335,19 @@ async function getUrgentIdSet(){
 /* Same defensive pattern for "removed" Route Cards — degrades to
    showing nothing filtered-out if the migration hasn't run yet, rather
    than crashing the screen. */
+/* Hides both manually-removed material (is_deleted) AND material that
+   auto-completed after Dock Audit (status='completed') from active
+   views. Uses select('*') plus a client-side check rather than a
+   server-side .eq('is_deleted',...) filter, so this can never crash a
+   screen even if a migration is still pending — a missing column just
+   reads as undefined/falsy instead of throwing. Nothing is ever
+   actually deleted from the database either way; this only affects
+   what shows in Search / PO Dashboard / Urgent. */
 async function getDeletedIdSet(){
   try{
-    const {data,error}=await sb.from('route_cards').select('id').eq('is_deleted',true);
+    const {data,error}=await sb.from('route_cards').select('*');
     if(error) return new Set();
-    return new Set((data||[]).map(r=>r.id));
+    return new Set((data||[]).filter(r=>r.is_deleted===true || r.status==='completed').map(r=>r.id));
   }catch(e){ return new Set(); }
 }
 

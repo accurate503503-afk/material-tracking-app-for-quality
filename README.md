@@ -104,6 +104,15 @@ two different phones, see the same live data.
   the note in `phase1_patch_05.sql` for how to add a dedicated role
   later).
 
+- **Completing Dock Audit auto-archives the Route Card** — its status
+  becomes `completed` and it stops appearing in Search, PO Dashboard,
+  and Urgent, the same as manually-removed material. Nothing is
+  deleted — full history stays intact and it's still reachable directly.
+- **`role` is a plain text column with a CHECK constraint**, not a
+  Postgres enum — this was changed deliberately after enum-related
+  migration failures; see `ULTRA_503_Material_Traceability_Master_Prompt.md`
+  §18 for why.
+
 ## Known Phase 1 simplifications (by design, not oversights)
 
 - **No in-app admin screen.** Role assignment happens in Supabase's
